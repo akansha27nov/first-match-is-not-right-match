@@ -35,13 +35,17 @@ Ran both approaches on the same 5 candidates:
 >
 > This information is supported by the following source: [EU_AI_Act / page_21_chunk_0].
 
-### Evidence supporting the answer
-5 chunks retrieved and reranked (full detail in `eval_results.json`):
-- EU_AI_Act / page_21_chunk_0 (rerank_score=0.99998) — **cited**
-- EU_AI_Act / page_33_chunk_2 (rerank_score=0.9997) — retrieved, not cited
-- EU_AI_Act / page_82_chunk_0 (rerank_score=0.9991) — retrieved, not cited
-- EU_AI_Act / page_15_chunk_1 (rerank_score=0.9983) — retrieved, not cited
-- EU_AI_Act / page_55_chunk_1 (rerank_score=0.9969) — retrieved, not cited
+### Evidence supporting the answer (top 5, after Cohere reranking)
+
+| # | Source | Similarity score | Rerank score | Cited in answer? |
+|---|---|---|---|---|
+| 1 | EU_AI_Act / page_21_chunk_0 | 0.688 | 1.000 | ✅ Yes |
+| 2 | EU_AI_Act / page_33_chunk_2 | 0.692 | 1.000 | ❌ No |
+| 3 | EU_AI_Act / page_82_chunk_0 | 0.677 | 0.999 | ❌ No |
+| 4 | EU_AI_Act / page_15_chunk_1 | 0.658 | 0.998 | ❌ No |
+| 5 | EU_AI_Act / page_55_chunk_1 | 0.661 | 0.997 | ❌ No |
+
+(full raw output in `eval_results.json`)
 
 **Grounding check result:** 5 chunks retrieved → only **1** chunk actually cited in the answer text. 4 of 5 (80%) were passed to the LLM but never surfaced in the response, meaning the "evidence" list overstates what actually grounded the answer.
 
@@ -84,18 +88,24 @@ Reranking changed the ordering (`page_121_chunk_1` moved to rank #1) but the ans
 
 ## Limitation / Failure Case
 
-**Retrieved ≠ cited: the pipeline cannot prove what actually grounded an answer, only what was fed to the LLM.**
+**Recall gap: the correct legal source never enters the retrieval candidate pool, so reranking cannot recover it.**
 
-Across all three test queries, the pipeline retrieves and reranks 5 chunks per query, but the LLM's generated answer explicitly cites only 1–2 of them (measured with a regex-based grounding checker comparing retrieved `section` IDs against sections named in the answer text). For Query 1, this meant **80% of retrieved evidence was unused and unaccounted for** — the printed "evidence used" list is technically accurate (those chunks were retrieved and included in the prompt context) but misleading as a grounding claim, since most of that content may have been ignored by the model, or blended into the answer without attribution.
+Article 13 of the EU AI Act — titled "Transparency and provision of information to deployers," the section that most directly and specifically answers Query 1 — is present in the index as a single chunk (`chunk-84`, `page_25_chunk_1`), confirmed by a keyword-biased search. But when running the actual query ("What are the transparency requirements for high-risk AI systems?") through baseline vector search, `chunk-84` does not appear anywhere in the top 20 results by similarity. It first appears at **top_100**.
 
-**Risk:** A reviewer trusting the evidence list as proof of grounding would overestimate how much of the retrieved context actually supports the stated answer. This is a genuine trustworthiness gap for a system whose stated goal is traceability.
+This means: **no reranker can fix this.** LLM relevance scoring and Cohere reranking both only reorder whatever candidates similarity search hands them — if `top_k=10` is what feeds the reranker (as in this pipeline), the single most on-topic chunk in the entire index is discarded before reranking ever runs. This is a recall problem, not a ranking problem, and it sits upstream of every reranking technique tested in this lab.
 
-**Mitigation not yet implemented:** constrain the generation prompt to require an explicit citation-to-chunk mapping for every claim (e.g., structured output with `claim` + `supporting_chunk_id` pairs), then validate post-hoc that every citation in the answer maps to a retrieved chunk ID and flag any retrieved chunk that went uncited so it can be dropped from the evidence list shown to the user.
+**Likely cause:** Article 13's chunk (`sim=0.459` even against a query built from its own keyword) uses dense, itemized legal listing language ("providers... shall ensure... accompanied by information..."), which embeds further from a conversationally-phrased query than recitals and adjacent articles that restate the same concepts in more topic-declarative language. The embedding model is matching phrasing style as much as legal substance.
 
-**Secondary limitation:** Cohere's rerank scores clustered near 1.0 across all candidates in Query 1 (0.997–1.000), providing weak discrimination once the baseline candidate set is already strong. It behaves more like a relevant/irrelevant filter than a fine-grained ranker in this setting.
+**Verification method:** `recall_check.py` — runs a keyword-biased search to locate the ground-truth chunk, then checks whether that chunk's ID appears in the real query's top-k retrieval, widening top_k stepwise (20 → 30 → 50 → 100) until it's found.
+
+**Mitigation not yet implemented:** wider initial retrieval (`top_k=30-50` before reranking, not 10), hybrid keyword+vector search (BM25 would likely catch "Article 13" directly via lexical match), or query rewriting/expansion to generate multiple phrasings of the same question before retrieval.
+
+**Secondary limitation (grounding transparency):** even when relevant chunks are retrieved, the pipeline retrieves 5 chunks per query but the LLM's generated answer explicitly cites only 1–2 of them (measured with `grounding_check.py`). For Query 1, 4 of 5 retrieved chunks (80%) went uncited. This is a smaller trustworthiness gap sitting downstream of the recall issue: even a well-populated candidate pool doesn't guarantee the final answer transparently shows which evidence it actually used.
+
+**Secondary limitation (score calibration):** Cohere's rerank scores clustered near 1.0 across all candidates in Query 1 (0.997–1.000), providing weak discrimination once the baseline candidate set is already strong. It behaves more like a relevant/irrelevant filter than a fine-grained ranker in this setting.
 
 ---
 
-## Data Quality Note
+## Data Quality Note (process transparency)
 
 Initial PDF extraction with `pypdf` produced broken text spacing (e.g. `"Ar ticle 12"`, `"T o address"`) that would have degraded LLM relevance judgments. Switched to `pdfplumber`, which produced clean extraction. Also caught and fixed a Pinecone index consistency bug where re-running `data_prep.py` after the extractor swap left 107 stale/dirty vectors in the index (461 total vs. 354 newly upserted) because vector IDs were assigned by list position; resolved by clearing the index before each full re-index.

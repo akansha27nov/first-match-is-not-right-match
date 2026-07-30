@@ -8,7 +8,7 @@ RAG pipeline comparing baseline vector retrieval against LLM-based and Cohere-ba
 2. Embeds chunks and indexes them in Pinecone
 3. Runs baseline vector similarity search
 4. Reranks results two ways — LLM relevance scoring and Cohere's reranker
-5. Generates a grounded answer via `GPT-4o-mini` using reranked context
+5. Generates a grounded answer via GPT-4o-mini using reranked context
 6. Evaluates whether reranking changes/improves the answer, and checks whether the answer's citations actually match what was retrieved
 
 See `lab_proof.md` for the full write-up: queries, retrieved evidence, reranking behavior, and a documented limitation (citation-vs-retrieval grounding gap).
@@ -18,6 +18,8 @@ See `lab_proof.md` for the full write-up: queries, retrieved evidence, reranking
 ```bash
 pip install openai pinecone cohere pypdf pdfplumber tiktoken python-dotenv pydantic
 ```
+
+`ffmpeg` is required for audio compression (macOS: `brew install ffmpeg`).
 
 Create a `.env` file in the project root:
 ```
@@ -64,29 +66,35 @@ python evaluate.py
 
 # 7. Grounding check: do the answer's citations match what was actually retrieved?
 python grounding_check.py
+
+# 8. Recall check: is the *correct* source even reachable by similarity search,
+#    at any top_k, before reranking gets a chance to act on it?
+python recall_check.py
 ```
 
 ## Project structure
 
 ```
-config.py            # paths, model names, chunk size/overlap
-models.py            # pydantic models: RetrievedChunk, RerankedChunk, LLMRelevanceScore
-transcribe.py        # Whisper API transcription with size guard + caching
-data_prep.py         # PDF (pdfplumber) + transcript chunking, embedding, Pinecone upsert
-clear_index.py       # wipes the Pinecone index (use before re-running data_prep after changes)
-retrieval.py         # baseline vector similarity search
-llm_rerank.py        # LLM-based relevance scoring reranker
-cohere_rerank.py     # Cohere API reranker
-rag_pipeline.py      # full retrieve -> rerank -> answer pipeline
-evaluate.py          # with/without reranking comparison across test queries
-grounding_check.py   # checks whether answer citations match retrieved chunk IDs
-lab_proof.md         # submission: queries, evidence, reranking analysis, limitation
-eval_results.json    # raw output from evaluate.py
+config.py              # paths, model names, chunk size/overlap
+models.py              # pydantic models: RetrievedChunk, RerankedChunk, LLMRelevanceScore
+transcribe.py          # Whisper API transcription with size guard + caching
+data_prep.py           # PDF (pdfplumber) + transcript chunking, embedding, Pinecone upsert
+clear_index.py         # wipes the Pinecone index (use before re-running data_prep after changes)
+retrieval.py           # baseline vector similarity search
+llm_rerank.py          # LLM-based relevance scoring reranker
+cohere_rerank.py       # Cohere API reranker
+rag_pipeline.py        # full retrieve -> rerank -> answer pipeline
+evaluate.py            # with/without reranking comparison across test queries
+grounding_check.py     # checks whether answer citations match retrieved chunk IDs
+recall_check.py        # checks whether the correct source chunk is reachable at any top_k before reranking
+lab_proof.md           # submission: queries, evidence, reranking analysis, limitation
+eval_results.json      # raw output from evaluate.py
 ```
 
 ## Known limitations
 
-- **Grounding gap:** the pipeline retrieves 5 chunks per query but the LLM typically cites only 1–2 in its answer text. The "evidence used" list reflects what was retrieved, not necessarily what grounded the final answer. See `lab_proof.md` for measured numbers and a proposed mitigation (structured claim-to-chunk citation mapping).
+- **Recall gap (primary):** Article 13 — the section that most directly answers "transparency requirements for high-risk AI systems" — never appears in similarity search results until `top_k=100`. Reranking cannot fix this since it only reorders whatever's already retrieved. See `recall_check.py` and `lab_proof.md` for the full trace. Likely fix: wider initial retrieval, hybrid BM25+vector search, or query rewriting.
+- **Grounding gap:** the pipeline retrieves 5 chunks per query but the LLM typically cites only 1–2 in its answer text. The "evidence used" list reflects what was retrieved, not necessarily what grounded the final answer.
 - **Cohere score compression:** rerank scores cluster near 1.0 when the baseline candidate set is already strong, giving weak fine-grained discrimination between top candidates.
 
 ## Notes on setup issues encountered
