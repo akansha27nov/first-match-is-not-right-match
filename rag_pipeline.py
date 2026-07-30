@@ -7,6 +7,12 @@ from pydantic import BaseModel
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+TEST_QUERIES = [
+    "What are the transparency requirements for high-risk AI systems?",
+    "What record-keeping obligations apply to high-risk AI systems?",
+    "How does the AI Act define an AI system?",
+]
+
 
 class RAGAnswer(BaseModel):
     query: str
@@ -47,7 +53,6 @@ def run_pipeline(query: str, use_reranking: bool = True, top_k: int = 10, top_n:
     if use_reranking:
         evidence = cohere_rerank(query, candidates, top_n=top_n)
     else:
-        # Wrap plain RetrievedChunk into RerankedChunk so the schema stays consistent
         evidence = [RerankedChunk(**c.model_dump()) for c in candidates[:top_n]]
 
     context = build_context(evidence)
@@ -57,10 +62,11 @@ def run_pipeline(query: str, use_reranking: bool = True, top_k: int = 10, top_n:
 
 
 if __name__ == "__main__":
-    query = "What are the transparency requirements for high-risk AI systems?"
-    result = run_pipeline(query, use_reranking=True)
+    for query in TEST_QUERIES:
+        print(f"\n{'='*80}\nQUERY: {query}\n{'='*80}")
+        result = run_pipeline(query, use_reranking=True)
 
-    print("ANSWER:\n", result.answer)
-    print("\nEVIDENCE USED:")
-    for e in result.evidence:
-        print(f"  - {e.source} / {e.section} (rerank_score={e.rerank_score})")
+        print("ANSWER:\n", result.answer)
+        print("\nEVIDENCE USED:")
+        for e in result.evidence:
+            print(f"  - article={e.article} — {e.source} / {e.section} (rerank_score={e.rerank_score})")

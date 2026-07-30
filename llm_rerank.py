@@ -5,6 +5,12 @@ from models import RetrievedChunk, RerankedChunk, LLMRelevanceScore
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+TEST_QUERIES = [
+    "What are the transparency requirements for high-risk AI systems?",
+    "What record-keeping obligations apply to high-risk AI systems?",
+    "How does the AI Act define an AI system?",
+]
+
 
 def score_chunk_relevance(query: str, chunk_text: str) -> float:
     prompt = f"""Rate how relevant this passage is to answering the query, on a 0.0-1.0 scale.
@@ -40,10 +46,11 @@ def llm_rerank(query: str, chunks: list[RetrievedChunk], alpha: float = 0.5) -> 
 if __name__ == "__main__":
     from retrieval import baseline_search
 
-    query = "What are the transparency requirements for high-risk AI systems?"
-    hits = baseline_search(query, top_k=5)
-    reranked = llm_rerank(query, hits)
+    for query in TEST_QUERIES:
+        print(f"\n{'='*80}\nQUERY: {query}\n{'='*80}")
+        hits = baseline_search(query, top_k=5)
+        reranked = llm_rerank(query, hits)
 
-    for h in reranked:
-        print(f"[sim={h.score:.3f} llm={h.llm_score:.2f} combined={h.combined_score:.3f}] {h.source}")
-        print(f"  {h.text[:120]}...")
+        for h in reranked:
+            print(f"[sim={h.score:.3f} llm={h.llm_score:.2f} combined={h.combined_score:.3f}] article={h.article}")
+            print(f"  {h.text[:120]}...")
