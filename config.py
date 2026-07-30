@@ -13,6 +13,6 @@ EMBED_DIM = 1536
 CHUNK_SIZE = 500        # tokens
 CHUNK_OVERLAP = 75
 
-PODCAST_AUDIO_PATH = "data/The_Blueprint_For_Trustworthy_AI.m4a"
+PODCAST_AUDIO_PATH = "data/podcast.mp3"
 PODCAST_TRANSCRIPT_PATH = "data/podcast_transcript.txt"
-EU_AI_ACT_PDF_PATH = "data/eu_ai_act.pdf"
+PDF_PATH = "data/eu_ai_act.pdf"
