@@ -1,3 +1,4 @@
+import re
 import tiktoken
 import pdfplumber
 from pypdf import PdfReader
@@ -13,6 +14,11 @@ from config import (
 client = OpenAI(api_key=OPENAI_API_KEY)
 pc = Pinecone(api_key=PINECONE_API_KEY)
 enc = tiktoken.get_encoding("cl100k_base")
+
+ARTICLE_HEADING_RE = re.compile(r'^Article\s+(\d+)\s*$')
+RECITAL_RE = re.compile(r'^\((\d{1,3})\)\s')
+CHAPTER_RE = re.compile(r'^CHAPTER\s+([IVXLC]+)\b', re.IGNORECASE)
+ANNEX_RE = re.compile(r'^ANNEX\s+([IVXLC]+)\b', re.IGNORECASE)
 
 
 def chunk_text(text: str, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
@@ -44,14 +50,59 @@ def load_eu_ai_act(path: str):
     records = []
     with pdfplumber.open(path) as pdf:
         for page_num, page in enumerate(pdf.pages):
-            page_text = page.extract_text() or ""
-            if not page_text.strip():
+            text = page.extract_text() or ""
+            if not text.strip():
                 continue
-            for i, c in enumerate(chunk_text(page_text)):
+
+            current_article = current_recital = current_chapter = current_annex = None
+            buffer, buffer_tokens, chunk_idx = [], 0, 0
+
+            def flush():
+                nonlocal buffer, buffer_tokens, chunk_idx
+                if not buffer:
+                    return
                 records.append({
-                    "text": c,
-                    "metadata": {"source": "EU_AI_Act", "section": f"page_{page_num + 1}_chunk_{i}"},
+                    "text": " ".join(buffer),
+                    "metadata": {
+                        "source": "EU_AI_Act",
+                        "section": f"page_{page_num + 1}_chunk_{chunk_idx}",
+                        "article": current_article or "",
+                        "recital": current_recital or "",
+                        "chapter": current_chapter or "",
+                        "annex": current_annex or "",
+                    },
                 })
+                chunk_idx += 1
+                buffer, buffer_tokens = [], 0
+
+            for line in text.split("\n"):
+                stripped = line.strip()
+                is_new_boundary = (
+                    ARTICLE_HEADING_RE.match(stripped)
+                    or RECITAL_RE.match(stripped)
+                    or CHAPTER_RE.match(stripped)
+                    or ANNEX_RE.match(stripped)
+                )
+
+                # Flush BEFORE updating the tag, so the outgoing chunk keeps the old label
+                if is_new_boundary and buffer:
+                    flush()
+
+                if m := ARTICLE_HEADING_RE.match(stripped):
+                    current_article = m.group(1)
+                if m := RECITAL_RE.match(stripped):
+                    current_recital = m.group(1)
+                if m := CHAPTER_RE.match(stripped):
+                    current_chapter = m.group(1)
+                if m := ANNEX_RE.match(stripped):
+                    current_annex = m.group(1)
+
+                buffer.append(line)
+                buffer_tokens += len(enc.encode(line))
+                if buffer_tokens >= CHUNK_SIZE:
+                    flush()
+
+            flush()
     return records
 
 

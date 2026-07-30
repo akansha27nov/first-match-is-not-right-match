@@ -8,6 +8,10 @@ class RetrievedChunk(BaseModel):
     text: str
     source: Literal["podcast", "EU_AI_Act"]
     section: str
+    article: Optional[str] = None
+    recital: Optional[str] = None
+    chapter: Optional[str] = None
+    annex: Optional[str] = None
 
 
 class RerankedChunk(RetrievedChunk):
