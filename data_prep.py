@@ -1,4 +1,5 @@
 import tiktoken
+import pdfplumber
 from pypdf import PdfReader
 from openai import OpenAI
 from pinecone import Pinecone, ServerlessSpec
@@ -40,20 +41,17 @@ def load_podcast(path: str = PODCAST_TRANSCRIPT_PATH):
 
 
 def load_eu_ai_act(path: str):
-    reader = PdfReader(path)
     records = []
-    for page_num, page in enumerate(reader.pages):
-        page_text = page.extract_text() or ""
-        if not page_text.strip():
-            continue
-        for i, c in enumerate(chunk_text(page_text)):
-            records.append({
-                "text": c,
-                "metadata": {
-                    "source": "EU_AI_Act",
-                    "section": f"page_{page_num + 1}_chunk_{i}",
-                },
-            })
+    with pdfplumber.open(path) as pdf:
+        for page_num, page in enumerate(pdf.pages):
+            page_text = page.extract_text() or ""
+            if not page_text.strip():
+                continue
+            for i, c in enumerate(chunk_text(page_text)):
+                records.append({
+                    "text": c,
+                    "metadata": {"source": "EU_AI_Act", "section": f"page_{page_num + 1}_chunk_{i}"},
+                })
     return records
 
 
