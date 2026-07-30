@@ -98,14 +98,3 @@ Used during development to find and confirm a bug, but not required for the pipe
 
 - `recall_check.py` — checks whether a target chunk is reachable at any top_k before reranking. Used to originally surface an apparent recall gap, later traced to a chunking-boundary bug (see `lab_proof.md`). Not cited by name in the final write-up, but documents part of the debugging trail — safe to keep or drop.
 
-## Known limitations
-
-- **Chunking-boundary bug (found and fixed):** the original chunking logic only flushed a chunk buffer on a token-size threshold, not on legal-structure boundaries (a new `Article N` heading). This let short articles get absorbed into neighboring chunks and mistagged, which initially looked like a fundamental retrieval recall gap (Article 13 didn't surface until top_k=100) but was actually a chunking defect. Fixed by flushing on every article/recital/chapter/annex heading in addition to the token threshold. See `lab_proof.md` for the full before/after trace.
-- **Grounding/citation gap:** the pipeline retrieves 5 chunks per query but the LLM cites anywhere from 1-4 of them depending on the query, measured with `grounding_check.py`. Citation rate improved after the chunking fix but still varies — see the per-query table in `lab_proof.md`.
-- **Cohere score compression:** rerank scores cluster near 1.0 when the baseline candidate set is already strong, giving weak fine-grained discrimination between top candidates.
-
-## Notes on setup issues encountered
-
-- Initial PDF extraction with `pypdf` produced broken word spacing; switched to `pdfplumber` for clean text.
-- Switching extractors or chunking logic changes chunk boundaries/counts — always run `clear_index.py` before re-running `data_prep.py`, or the index ends up with a mix of old and new vectors under overlapping IDs.
-- Article/recital tagging initially bled across chunk boundaries (a chunk's metadata tag could reflect a heading that appeared *after* most of the chunk's actual content, if both landed in the same token-size buffer). Fixed by flushing the buffer immediately on any new heading, not just at the token limit.

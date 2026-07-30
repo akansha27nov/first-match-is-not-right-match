@@ -135,3 +135,9 @@ Notably, this improved sharply for Query 1 after the chunking fix (was 80% unuse
 ## Data Quality Note (process transparency)
 
 Initial PDF extraction with `pypdf` produced broken text spacing (e.g. `"Ar ticle 12"`, `"T o address"`) that would have degraded LLM relevance judgments. Switched to `pdfplumber`, which produced clean extraction. Also caught and fixed a Pinecone index consistency bug where re-running `data_prep.py` after the extractor swap left 107 stale/dirty vectors in the index (461 total vs. 354 newly upserted) because vector IDs were assigned by list position; resolved by clearing the index before each full re-index.
+
+## Notes on issues encountered
+
+- Initial PDF extraction with `pypdf` produced broken word spacing; switched to `pdfplumber` for clean text.
+- Switching extractors or chunking logic changes chunk boundaries/counts — always run `clear_index.py` before re-running `data_prep.py`, or the index ends up with a mix of old and new vectors under overlapping IDs.
+- Article/recital tagging initially bled across chunk boundaries (a chunk's metadata tag could reflect a heading that appeared *after* most of the chunk's actual content, if both landed in the same token-size buffer). Fixed by flushing the buffer immediately on any new heading, not just at the token limit.
